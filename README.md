@@ -10,26 +10,23 @@ when a person approves it, submits it for App Review. Crashes go to Sentry.
 
 ## Set it up once
 
-1. In GitHub, make the environments `testflight` and `app-store` (**Settings ▸
-   Environments**), each with **Required reviewers**. Nothing ships before a reviewer
-   approves it.
-2. In App Store Connect, make a team API key (**Users and Access ▸ Integrations ▸ Team
+1. In App Store Connect, make a team API key (**Users and Access ▸ Integrations ▸ Team
    Keys**) with the role **Admin**, and download it. Cloud-managed signing refuses a key with
    a smaller role. Put it in the repository's secrets:
    - `ASC_KEY_P8`: the text of the `.p8` file. Its line breaks can go: the workflows put
      them back (`scripts/asc-key.sh`).
    - `ASC_KEY_ID`: the key's ID.
    - `ASC_ISSUER_ID`: the issuer ID, above the list of keys.
-3. Put your team ID (**Membership details** on developer.apple.com) in the repository
+2. Put your team ID (**Membership details** on developer.apple.com) in the repository
    variable `APPLE_TEAM_ID`.
-4. Run the **setup** workflow (**Actions ▸ setup ▸ Run workflow**). It registers the bundle
+3. Run the **setup** workflow (**Actions ▸ setup ▸ Run workflow**). It registers the bundle
    id `__BUNDLE_ID__`.
-5. In App Store Connect, make the app's record (**Apps ▸ + ▸ New App**) with that bundle
+4. In App Store Connect, make the app's record (**Apps ▸ + ▸ New App**) with that bundle
    id.
-6. For Sentry, put the project's DSN in the repository variable `SENTRY_DSN`. With no DSN,
+5. For Sentry, put the project's DSN in the repository variable `SENTRY_DSN`. With no DSN,
    the app sends nothing. For crashes with names and lines, also put the project's slug in
    the variable `SENTRY_PROJECT`, and an organization token (Sentry's **Settings ▸
-   Organization Tokens**) in the secret `SENTRY_AUTH_TOKEN`: `release.yml` then uploads the
+   Organization Tokens**) in the secret `SENTRY_AUTH_TOKEN`: `testflight.yml` then uploads the
    debug symbols.
 
 Signing is Xcode's cloud-managed signing: Apple makes the certificate and the profile from
@@ -42,11 +39,20 @@ git tag -a v0.1.0 -m "What is new in this version"
 git push origin v0.1.0
 ```
 
-- `release.yml` waits for a reviewer of `testflight`, then uploads build
-  `<run number>` of version `0.1.0` to TestFlight.
-- `app-store.yml` waits for a reviewer of `app-store`, then waits for the build to be
-  processed and submits it for App Review. The tag's message is "What's New".
+`release.yml` asks for your approval twice, on any GitHub plan: it makes a GitHub Deployment
+to `testflight` and one to `app-store`, which wait. Approve each in Agent Loops' **Needs
+You**; **Reject** ships nothing.
+
+- Approve `testflight`: `testflight.yml` uploads build `<run number>` of version `0.1.0` to
+  TestFlight.
+- Approve `app-store`: `app-store.yml` waits for the build to be processed and submits it
+  for App Review. The tag's message is "What's New".
 
 Each workflow says what it shipped with a notice, such as
 `::notice title=deploy::testflight:__BUNDLE_ID__/42`. Agents reads it and shows the build
 beside the release that it came from.
+
+Without Agent Loops, approve a version yourself: set the Deployment's status to `queued`
+(`gh api repos/<owner>/<repo>/deployments/<id>/statuses -f state=queued`), then run its
+workflow on the tag with that id (`gh workflow run testflight.yml --ref v0.1.0 -f
+deployment=<id>`). `release.yml`'s run says each id.
