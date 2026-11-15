@@ -2,7 +2,7 @@
 # Connect (which has no API for that). Run it from the Actions tab, or with
 # `gh workflow run setup.yml`. It does nothing when the bundle id is there already.
 #
-# It needs the secrets ASC_KEY_P8, ASC_KEY_ID and ASC_ISSUER_ID, as release.yml does.
+# It needs the secrets ASC_KEY_P8, ASC_KEY_ID and ASC_ISSUER_ID, as testflight.yml does.
 name: setup
 
 on:

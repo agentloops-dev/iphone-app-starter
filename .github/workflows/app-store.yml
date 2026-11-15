@@ -1,21 +1,23 @@
-# Submits a release to App Review when a person approves it. On each version tag, the submit job
-# waits at the `app-store` environment's gate for one of its required reviewers. Only after
-# Approve does it wait for release.yml's TestFlight build of the tag to be processed, then submit
-# it (scripts/asc.swift). Reject ends it, and the release stays on TestFlight.
+# Submits a release to App Review when a person approves it in Agent Loops: release.yml asks on
+# the tag, and Approve starts this workflow on the tag with the Deployment it approved. It
+# submits only that Deployment, only when it is approved (scripts/approval.sh): it waits for
+# testflight.yml's TestFlight build of the tag to be processed, then submits it
+# (scripts/asc.swift). Reject ships nothing, and the release stays on TestFlight. Run by hand,
+# it refuses.
 #
-# The gate job first checks that the `app-store` environment has required reviewers. Without
-# them the submit job does not start: GitHub would make the environment with no gate, and the
-# release would go to App Review with nobody's approval.
-#
-# It needs the secrets ASC_KEY_P8, ASC_KEY_ID and ASC_ISSUER_ID, as release.yml does.
+# It needs the secrets ASC_KEY_P8, ASC_KEY_ID and ASC_ISSUER_ID, as testflight.yml does.
 name: app-store
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      deployment:
+        description: The GitHub Deployment that was approved in Agent Loops
+        required: true
 
 permissions:
   contents: read
+  deployments: write
 
 concurrency:
   group: app-store-${{ github.ref_name }}
@@ -25,33 +27,18 @@ env:
   TAG: ${{ github.ref_name }}
 
 jobs:
-  gate:
-    runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.gate.outputs.ready }}
-    steps:
-      - name: The app-store environment has required reviewers
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/app-store" \
-            --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]] | length' 2>/dev/null || echo 0)
-          if [[ $reviewers -gt 0 ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No app-store environment with required reviewers, so $TAG is not submitted to App Review."
-          fi
-
   submit:
-    needs: gate
-    if: needs.gate.outputs.ready == 'true'
     runs-on: macos-latest
     timeout-minutes: 120
-    environment: app-store
     steps:
       - uses: actions/checkout@v5
+
+      - name: The app-store deploy was approved in Agent Loops
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT: ${{ inputs.deployment }}
+          JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ job.check_run_id }}
+        run: bash scripts/approval.sh start app-store
 
       - name: The App Store Connect key is there
         env:
@@ -83,3 +70,11 @@ jobs:
         run: |
           echo "::notice title=deploy::testflight:$BUNDLE_ID/${{ steps.submit.outputs.build }}"
           echo "::notice title=deploy::appstore:$BUNDLE_ID/${TAG#v}"
+
+      # How it went, in the Deployment's status: Agent Loops shows it in Lineage.
+      - name: Say how it went
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ job.check_run_id }}
+        run: bash scripts/approval.sh end "${{ job.status }}"
